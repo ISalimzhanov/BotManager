@@ -25,7 +25,6 @@ class EchoBot:
         @self.__tg_api.message_handlers(content_types=['text'])
         def response(message: Message):
             self.echo_all(message)
-
         thread = Thread(target=self.update)
         print(f"Bot with token {self.__token} is launched")
         return thread
