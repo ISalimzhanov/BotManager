@@ -11,8 +11,8 @@ class MongoConnector:
     def __init__(self, uri: str):
         client = pymongo.MongoClient(uri)
         self.db = client.get_database()
-        #self.db.user.create_index({"username": 1}, {"unique": True})
-        #self.db.token.create_index({"token": 1}, {"unique": True})
+        # self.db.user.create_index({"username": 1}, {"unique": True}) toDo
+        # self.db.token.create_index({"token": 1}, {"unique": True}) toDo
 
     def add_user(self, username: str, password: str) -> str:
         users: pymongo.collection.Collection = self.db.user
@@ -24,15 +24,15 @@ class MongoConnector:
         ).inserted_id
         return str(user_id)
 
-    def get_user_id(self, username: str, password: str) -> str:
+    def get_user(self, username: str) -> dict:
         users: pymongo.collection.Collection = self.db.user
-        user_id = users.find_one(
+        user = users.find_one(
             {
                 "username": username,
-                "password": password,
             }
         )
-        return user_id
+        user["_id"] = str(user["_id"])
+        return user
 
     def add_token(self, user_id: str, token: str) -> str:
         tokens: pymongo.collection.Collection = self.db.token
@@ -60,4 +60,4 @@ class MongoConnector:
                 "user.$id": bson.ObjectId(user_id),
             }
         )
-        return [entry.token for entry in user_tokens]
+        return [entry["token"] for entry in user_tokens]

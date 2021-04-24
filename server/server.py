@@ -4,7 +4,7 @@ import os
 import pymongo.errors
 from flask import Flask, request, jsonify
 from flask_jwt_extended import JWTManager, create_access_token, create_refresh_token, jwt_required, get_jwt_identity
-
+import flask_bcrypt
 from bots.echoBot import EchoBot
 from database_connectors.mongoConnector import MongoConnector
 import binascii
@@ -14,48 +14,47 @@ app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = binascii.hexlify(os.urandom(30))
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(days=1)
 jwt = JWTManager(app)
-cache = {}  # temp
+launched_bots = {}
 
 
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json()
     # toDo validate
-    # toDo hashing
     try:
+        data["password"] = flask_bcrypt.generate_password_hash(data["password"])
         mongo.add_user(data["username"], data["password"])
         return jsonify(
             {
                 "ok": True,
-                "message": "User registered successfully",
+                "msg": "User registered successfully",
             }, 200
         )
     except pymongo.errors.PyMongoError as e:
         return jsonify(
             {
                 "ok": False,
-                "message": e,
+                "msg": e,
             }, 400
         )
 
 
 @app.route("/auth", methods=["POST"])
-def auth_user():
+def auth():
     data = request.get_json()
     # toDo validate
-    # toDo hashing
-    user_id = mongo.get_user_id(data["username"], data["password"])
+    user = mongo.get_user(data["username"])
     try:
-        if user_id:
-            access_token = create_access_token(identity=user_id)
-            refresh_token = create_refresh_token(identity=user_id)
+        if user and flask_bcrypt.check_password_hash(user["password"], data["password"]):
+            access_token = create_access_token(identity=user["_id"])
+            refresh_token = create_refresh_token(identity=user["_id"])
             return jsonify(
                 {
                     "ok": True,
-                    "message": "Authorization passed successfully",
+                    "msg": "Authorization passed successfully",
                     "data": {
-                        "access_token": access_token,
-                        "refresh_token": refresh_token,
+                        "token": access_token,
+                        "refresh": refresh_token,
                     }
                 }
             ), 200
@@ -63,14 +62,14 @@ def auth_user():
             return jsonify(
                 {
                     "ok": False,
-                    "message": "Authorization failed. Either password or login is incorrect",
+                    "msg": "Authorization failed. Either password or login is incorrect",
                 }
             ), 400
     except pymongo.errors.PyMongoError as e:
         return jsonify(
             {
                 "ok": False,
-                "message": e,
+                "msg": e,
             }, 400
         )
 
@@ -80,14 +79,15 @@ def auth_user():
 def refresh():
     identity = get_jwt_identity()
     data = {
-        "access_token": create_access_token(identity=identity)
+        "token": create_access_token(identity=identity)
     }
     return jsonify({"ok": True, "data": data}), 200
 
 
 @app.route("/bots", methods=["GET", "DELETE", "POST"])
-@jwt_required
+@jwt_required()
 def bot():
+    # toDo validate
     try:
         try:
             user_id = get_jwt_identity()
@@ -100,17 +100,17 @@ def bot():
             elif request.method == "DELETE":
                 mongo.remove_token(user_id, data["token"])
                 msg = "Bot is stopped successfully"
-                cache[data["token"]].join()
-                del cache[data["token"]]
+                launched_bots[data["token"]].join()
+                del launched_bots[data["token"]]
             else:
                 mongo.add_token(user_id, data["token"])
                 echo_bot = EchoBot(data["token"])
-                cache[data["token"]] = echo_bot.run()
+                launched_bots[data["token"]] = echo_bot.run()
                 msg = "Bot is launched successfully"
             return jsonify(
                 {
                     "ok": True,
-                    "message": msg,
+                    "msg": msg,
                     "data": res,
                 }, 200
             )
@@ -118,14 +118,14 @@ def bot():
             return jsonify(
                 {
                     "ok": False,
-                    "message": "Bad request parameters",
+                    "msg": "Bad request parameters",
                 }, 400
             )
     except pymongo.errors.PyMongoError as e:
         return jsonify(
             {
                 "ok": False,
-                "message": e,
+                "msg": e,
             }, 400
         )
 
@@ -144,4 +144,4 @@ if __name__ == "__main__":
           f"{args.host}:{args.port}/{args.dbname}?authSource={args.auth_source}"
 
     mongo = MongoConnector(uri)
-    app.run()
+    app.run(debug=True)
